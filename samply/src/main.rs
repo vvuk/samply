@@ -167,6 +167,10 @@ struct RecordArgs {
     /// Process IDs to include from a pre-recorded profile
     #[arg(long)]
     pids: Option<Vec<u32>>,
+
+    /// Enable CoreCLR events on Windows
+    #[arg(long)]
+    coreclr: bool,
 }
 
 #[derive(Debug, Args)]
@@ -362,6 +366,7 @@ impl RecordArgs {
             time_limit,
             interval,
             main_thread_only: self.main_thread_only,
+            coreclr: self.coreclr,
         }
     }
 

@@ -650,60 +650,112 @@ impl ProfileContext {
         }
     }
 
-    fn start_xperf(&mut self, output_file: &Path) {
+    fn start_xperf(&mut self, output_file: &Path, capture_coreclr: bool) {
         // start xperf.exe, logging to the same location as the output file, just with a .etl
         // extension.
-        let mut etl_file = output_file.to_path_buf();
-        etl_file.set_extension("unmerged-etl");
+        let kernel_etl = output_file.with_extension("kernel-etl");
+        let user_etl = output_file.with_extension("user-etl");
 
-        let mut xperf = runas::Command::new("xperf");
+        //let mut xperf = runas::Command::new("xperf");
+        let mut xperf = std::process::Command::new("xperf");
         // Virtualised ARM64 Windows crashes out on PROFILE tracing, and that's what I'm developing
         // on, so these are hacky args to get me a useful profile that I can work with.
-        xperf.arg("-on");
-        if self.arch != "aarch64" {
+        xperf.arg("-start"); // kernel implied
+        if self.arch != "arm64" {
+            xperf.arg("-on");
             xperf.arg("PROC_THREAD+LOADER+PROFILE+CSWITCH");
+            xperf.arg("-stackwalk");
+            xperf.arg("VirtualAlloc+VirtualFree");
         } else {
-            xperf.arg("PROC_THREAD+LOADER+CSWITCH+SYSCALL+VIRT_ALLOC+OB_HANDLE");
-        }
-        xperf.arg("-stackwalk");
-        if self.arch != "aarch64" {
+            xperf.arg("-on");
+            xperf.arg("PROC_THREAD+LOADER+CSWITCH+SYSCALL+VIRT_ALLOC");
+            xperf.arg("-stackwalk");
             xperf.arg("PROFILE+CSWITCH");
-        } else {
-            xperf.arg("VirtualAlloc+VirtualFree+HandleCreate+HandleClose");
         }
         xperf.arg("-f");
-        xperf.arg(expand_full_filename_with_cwd(&etl_file));
+        xperf.arg(expand_full_filename_with_cwd(&kernel_etl));
 
-        let _ = xperf.status().expect("failed to execute xperf");
+        if capture_coreclr {
+            xperf.arg("-start");
+            xperf.arg("SamplySession");
+            xperf.arg("-on");
+
+            // Enabling all the DotNETRuntime keywords is very expensive. In particular,
+            // enabling the NGenKeyword causes info to be generated for every NGen'd method; we should
+            // instead use the native PDB info from ModuleLoad events to get this information.
+            //
+            // Also enabling the rundown keyword causes a bunch of DCStart/DCEnd events to be generated,
+            // which is only useful if we're tracing an already running process.
+            const CORECLR_GC_KEYWORD: u64 = 0x1; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-garbage-collection-events
+            const CORECLR_BINDER_KEYWORD: u64 = 0x4; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-loader-binder-events
+            const CORECLR_LOADER_KEYWORD: u64 = 0x8; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-loader-binder-events
+            const CORECLR_JIT_KEYWORD: u64 = 0x10; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-method-events
+            const CORECLR_NGEN_KEYWORD: u64 = 0x10; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-method-events
+            const CORECLR_INTEROP_KEYWORD: u64 = 0x2000; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-interop-events
+            const CORECLR_CONTENTION_KEYWORD: u64 = 0x4000;
+            const CORECLR_EXCEPTION_KEYWORD: u64 = 0x8000; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-exception-events
+            const CORECLR_THREADING_KEYWORD: u64 = 0x10000; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-thread-events 
+            const CORECLR_COMPILATION_KEYWORD: u64 = 0x1000000000;
+            const CORECLR_COMPILATION_DIAGNOSTIC_KEYWORD: u64 = 0x2000000000; 
+            const CORECLR_TYPE_DIAGNOSTIC_KEYWORD: u64 = 0x8000000000; 
+
+            let desired_keywords = CORECLR_GC_KEYWORD | CORECLR_LOADER_KEYWORD | CORECLR_JIT_KEYWORD;
+            // 4 - Informational; 5 - Verbose. I don't think we need any verbose events (things like "jitting started" notifications),
+            // though things like GCAllocationTick_V3 are Verbose.
+            let level = 4; 
+
+            xperf.arg(format!("Microsoft-Windows-DotNETRuntime:0x{:x}:{}", desired_keywords, level));
+            xperf.arg("-f");
+            xperf.arg(expand_full_filename_with_cwd(&user_etl));
+        }
+
+        let status = xperf.status().expect("failed to execute xperf");
+        if !status.success() {
+            panic!("xperf exited with an error: {}", status);
+        }
 
         eprintln!("xperf session running...");
 
-        self.etl_file = Some(PathBuf::from(&etl_file));
         self.xperf_running = true;
     }
 
-    fn stop_xperf(&mut self) {
-        let unmerged_etl = self.etl_file.take().unwrap();
-        let merged_etl = unmerged_etl.with_extension("etl");
+    fn stop_xperf(&mut self, output_file: &Path, capture_coreclr: bool) {
+        let kernel_etl = output_file.with_extension("kernel-etl");
+        let user_etl = output_file.with_extension("user-etl");
+        let merged_etl = output_file.with_extension("etl");
 
         let mut xperf = runas::Command::new("xperf");
-        xperf.arg("-stop");
+        xperf.arg("-stop"); // kernel implied
+        if capture_coreclr {
+            xperf.arg("-stop");
+            xperf.arg("SamplySession");
+        }
         xperf.arg("-d");
         xperf.arg(expand_full_filename_with_cwd(&merged_etl));
 
-        let _ = xperf
-            .status()
-            .expect("Failed to execute xperf -stop! xperf may still be recording.");
+        let status = xperf.status().expect("Failed to execute xperf -stop! xperf may still be recording.");
+        if !status.success() {
+            panic!("xperf -stop exited with an error: {} xperf may still be recording.", status);
+        }
 
         eprintln!("xperf session stopped.");
 
-        std::fs::remove_file(&unmerged_etl).expect(
+        if false {
+        std::fs::remove_file(&kernel_etl).expect(
             format!(
-                "Failed to delete unmerged ETL file {:?}",
-                unmerged_etl.to_str().unwrap()
+                "Failed to delete unmerged ETL file {:?}", kernel_etl.to_str().unwrap()
             )
             .as_str(),
         );
+        if capture_coreclr {
+            std::fs::remove_file(&user_etl).expect(
+                format!(
+                    "Failed to delete unmerged ETL file {:?}", user_etl.to_str().unwrap()
+                )
+                .as_str(),
+            );
+        }
+    }
 
         self.etl_file = Some(merged_etl);
         self.xperf_running = false;
@@ -713,7 +765,17 @@ impl ProfileContext {
 impl Drop for ProfileContext {
     fn drop(&mut self) {
         if self.xperf_running {
-            self.stop_xperf();
+            let mut xperf = runas::Command::new("xperf");
+            xperf.arg("-stop");
+            xperf.arg("NT Kernel Logger");
+            xperf.status();
+
+            let mut xperf = runas::Command::new("xperf");
+            xperf.arg("-stop");
+            xperf.arg("SamplySession");
+            xperf.status();
+
+            //self.stop_xperf(); // XXX TODO
         }
     }
 }

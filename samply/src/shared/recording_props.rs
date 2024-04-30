@@ -7,6 +7,8 @@ pub struct RecordingProps {
     pub time_limit: Option<Duration>,
     pub interval: Duration,
     pub main_thread_only: bool,
+    /// Enable CoreCLR events on windows
+    pub coreclr: bool,
 }
 
 /// Properties which are meaningful both for recording a profile and

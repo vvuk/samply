@@ -92,7 +92,7 @@ pub fn start_recording(
         .ends_with(".etl")
     {
         // Start xperf.
-        context.start_xperf(&recording_props.output_file);
+        context.start_xperf(&recording_props.output_file, true);
 
         // Run the command.
         // !!!FIXME!!! We are in an elevated context right now. Running this will run
@@ -114,7 +114,7 @@ pub fn start_recording(
                 eprintln!("Child process exited with {:?}", exit_status);
             }
         }
-        context.stop_xperf();
+        context.stop_xperf(&recording_props.output_file, true);
 
         (context.etl_file.clone().unwrap(), false)
     } else {
