@@ -147,7 +147,7 @@ pub fn start_recording(
     let file = File::create(&output_file).unwrap();
     let writer = BufWriter::new(file);
     {
-        let profile = context.profile.borrow();
+        let profile = context.profile.borrow_mut();
         to_writer(writer, &*profile).expect("Couldn't write JSON");
     }
 
