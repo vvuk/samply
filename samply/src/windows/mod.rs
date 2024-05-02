@@ -206,7 +206,7 @@ impl ProfileContext {
         let kernel_category =
             CategoryPairHandle::from(profile.add_category("Kernel", CategoryColor::Orange));
         let coreclr_category =
-            CategoryPairHandle::from(profile.add_category("CoreCLR", CategoryColor::Magenta));
+            CategoryPairHandle::from(profile.add_category("CoreCLR", CategoryColor::Purple));
 
         // On 64-bit systems, the kernel address space always has 0xF in the first 16 bits.
         // The actual kernel address space is much higher, but we just need this to disambiguate kernel and user
@@ -717,24 +717,31 @@ impl ProfileContext {
             // Also enabling the rundown keyword causes a bunch of DCStart/DCEnd events to be generated,
             // which is only useful if we're tracing an already running process.
             const CORECLR_GC_KEYWORD: u64 = 0x1; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-garbage-collection-events
+            const CORECLR_GC_HANDLE_KEYWORD: u64 = 0x2;
             const CORECLR_BINDER_KEYWORD: u64 = 0x4; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-loader-binder-events
             const CORECLR_LOADER_KEYWORD: u64 = 0x8; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-loader-binder-events
             const CORECLR_JIT_KEYWORD: u64 = 0x10; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-method-events
-            const CORECLR_NGEN_KEYWORD: u64 = 0x10; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-method-events
+            const CORECLR_NGEN_KEYWORD: u64 = 0x20; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-method-events
             const CORECLR_INTEROP_KEYWORD: u64 = 0x2000; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-interop-events
             const CORECLR_CONTENTION_KEYWORD: u64 = 0x4000;
             const CORECLR_EXCEPTION_KEYWORD: u64 = 0x8000; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-exception-events
             const CORECLR_THREADING_KEYWORD: u64 = 0x10000; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-thread-events 
+            const CORECLR_JIT_TO_NATIVE_METHOD_MAP_KEYWORD: u64 = 0x20000;
+            const CORECLR_GC_SAMPLED_OBJECT_ALLOCATION_HIGH: u64 = 0x200000; // https://medium.com/criteo-engineering/build-your-own-net-memory-profiler-in-c-allocations-1-2-9c9f0c86cefd
+            const CORECLR_GC_HEAP_AND_TYPE_NAMES: u64 = 0x1000000;
+            const CORECLR_GC_SAMPLED_OBJECT_ALLOCATION_LOW: u64 = 0x2000000;
             const CORECLR_COMPILATION_KEYWORD: u64 = 0x1000000000;
             const CORECLR_COMPILATION_DIAGNOSTIC_KEYWORD: u64 = 0x2000000000; 
             const CORECLR_TYPE_DIAGNOSTIC_KEYWORD: u64 = 0x8000000000; 
 
-            let desired_keywords = CORECLR_GC_KEYWORD | CORECLR_LOADER_KEYWORD | CORECLR_JIT_KEYWORD;
+            // at some point GC_KEYWORD
+            let desired_keywords = CORECLR_LOADER_KEYWORD | CORECLR_JIT_KEYWORD | CORECLR_NGEN_KEYWORD;
             // 4 - Informational; 5 - Verbose. I don't think we need any verbose events (things like "jitting started" notifications),
             // though things like GCAllocationTick_V3 are Verbose.
             let level = 4; 
 
             xperf.arg(format!("Microsoft-Windows-DotNETRuntime:0x{:x}:{}", desired_keywords, level));
+            //xperf.arg(format!("Microsoft-Windows-DotNETRuntime"));
             xperf.arg("-f");
             xperf.arg(expand_full_filename_with_cwd(&user_etl));
         }

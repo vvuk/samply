@@ -145,7 +145,7 @@ pub fn handle_coreclr_event(context: &mut ProfileContext, s: &TypedEvent, parser
                 // there's some stuff in MethodFlags -- might be tiered JIT info?
                 // also ClrInstanceID -- we probably won't have more than one runtime, but maybe.
 
-                let method_name = format!("{method_namespace}.{method_basename} {method_signature}");
+                let method_name = format!("{method_basename} [{method_namespace}] \u{2329}{method_signature}\u{232a}");
 
                 let mut process_jit_info = context.get_process_jit_info(process_id);
                 let start_address = method_start_address.as_u64();
@@ -197,12 +197,46 @@ pub fn handle_coreclr_event(context: &mut ProfileContext, s: &TypedEvent, parser
                 //eprintln!("Method event: {dotnet_event} {text}");
             }
         }
+    } else if dotnet_event == "Type/BulkType" {
+        //         <template tid="BulkType">
+        // <data name="Count" inType="win:UInt32"    />
+        // <data name="ClrInstanceID" inType="win:UInt16" />
+        // <struct name="Values" count="Count" >
+          // <data name="TypeID" inType="win:UInt64" outType="win:HexInt64" />
+          // <data name="ModuleID" inType="win:UInt64" outType="win:HexInt64" />
+          // <data name="TypeNameID" inType="win:UInt32" />
+          // <data name="Flags" inType="win:UInt32" map="TypeFlagsMap"/>
+          // <data name="CorElementType"  inType="win:UInt8" />
+          // <data name="Name" inType="win:UnicodeString" />
+          // <data name="TypeParameterCount" inType="win:UInt32" />
+          // <data name="TypeParameters"  count="TypeParameterCount"  inType="win:UInt64" outType="win:HexInt64" />
+        // </struct>
+        // <UserData>
+          // <Type xmlns="myNs">
+            // <Count> %1 </Count>
+            // <ClrInstanceID> %2 </ClrInstanceID>
+          // </Type>
+        // </UserData>
+        //let count: u32 = parser.parse("Count");
+
+        // uint32 + uint16 at the front (Count and ClrInstanceID), then struct of values. We don't need a Vec<u8> copy.
+        //let values: Vec<u8> = parser.parse("Values");
+        //let values = &s.user_buffer()[6..];
+
+        //eprintln!("Type/BulkType count: {} user_buffer size: {} values len: {}", count, s.user_buffer().len(), values.len());
+    } else if dotnet_event == "CLRStack/CLRStackWalk" {
+        let process_id = s.process_id();
+
+        //let text = event_properties_to_string(s, parser, None);
+        //eprintln!("{dotnet_event} {text}");
+        handled = true;
     }
     
     if !handled {
-        if dotnet_event.contains("Garbage") {
-        let text = "";//event_properties_to_string(&s, &mut parser, None);
-        eprintln!("Unhandled .NET event: {dotnet_event} {text}");
-        }
+        if dotnet_event.contains("GarbageCollection") { return }
+        if dotnet_event.contains("/Thread") { return }
+        if dotnet_event.contains("Type/BulkType") { return }
+        let text = event_properties_to_string(s, parser, None);
+        //eprintln!("Unhandled .NET event: {dotnet_event} {text}");
     }
 }

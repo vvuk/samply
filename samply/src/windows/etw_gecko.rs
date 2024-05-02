@@ -410,7 +410,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                         eprintln!("DbID_RSDS for image at 0x{:x} for pid {}, but has no entry in libs", image_base, process_id);
                         return
                     };
-                    eprintln!("DbgID_RSDS pid: {} 0x{:x} {} {} {} {}", process_id, image_base, path, debug_id, pdb_path, age);
+                    //eprintln!("DbgID_RSDS pid: {} 0x{:x} {} {} {} {}", process_id, image_base, path, debug_id, pdb_path, age);
                     let code_id = Some(format!("{timestamp:08X}{image_size:x}"));
                     let name = Path::new(path).file_name().unwrap().to_str().unwrap().to_owned();
                     let debug_name = Path::new(&pdb_path).file_name().unwrap().to_str().unwrap().to_owned();

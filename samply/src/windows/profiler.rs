@@ -78,8 +78,8 @@ pub fn start_recording(
 
     let merge_threads = false;
     let include_idle_time = false;
-    let arch = get_native_arch(); // TODO: Detect from file if reading from file
-    let mut context = ProfileContext::new(profile, arch, merge_threads, include_idle_time);
+    let arch = profile_creation_props.arch.unwrap_or(get_native_arch().to_string());
+    let mut context = ProfileContext::new(profile, &arch, merge_threads, include_idle_time);
 
     // we need the debug privilege token in order to get the kernel's address and run xperf.
     ////winutils::enable_debug_privilege();
