@@ -27,6 +27,8 @@ pub struct ProfileCreationProps {
     pub include_process_names: Option<Vec<String>>,
     /// Process IDs to include from a pre-recorded profile
     pub include_process_ids: Option<Vec<u32>>,
+    /// Architecture, overrides detected
+    pub arch: Option<String>,
 }
 
 /// Properties which are meaningful for launching and recording a fresh process.

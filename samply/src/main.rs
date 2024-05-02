@@ -111,6 +111,18 @@ struct ImportArgs {
 
     #[command(flatten)]
     server_args: ServerArgs,
+
+    /// Names of processes to include from either a pre-recorded profile or live recording
+    #[arg(long)]
+    names: Option<Vec<String>>,
+
+    /// Process IDs to include from a pre-recorded profile
+    #[arg(long)]
+    pids: Option<Vec<u32>>,
+
+    /// The architecture of the ETL trace on Windows to import, if different from the current system
+    #[arg(long)]
+    arch: Option<String>,
 }
 
 #[allow(unused)]
@@ -242,6 +254,7 @@ fn main() {
             start_server_main(profile_filename, load_args.server_props(), libinfo_map);
         }
 
+        #[cfg(any(target_os = "linux"))]
         Action::Import(import_args) => {
             let input_file = match File::open(&import_args.file) {
                 Ok(file) => file,
@@ -251,7 +264,7 @@ fn main() {
                 }
             };
             let profile_creation_props = import_args.profile_creation_props();
-            convert_file_to_profile(
+            convert_perf_file_to_profile(
                 &import_args.file,
                 &input_file,
                 &import_args.output,
@@ -266,6 +279,42 @@ fn main() {
                 .expect("Couldn't parse libinfo map from profile file");
                 start_server_main(profile_filename, server_props, libinfo_map);
             }
+        }
+
+        #[cfg(any(target_os = "windows"))]
+        Action::Import(import_args) => {
+            // windows hack, if start_recording sees a .etl file as the command, it'll
+            // open it for processing
+            let process_launch_props = ProcessLaunchProps {
+                env_vars: Vec::new(),
+                command_name: import_args.file.clone().into_os_string(),
+                args: Vec::new(),
+                iteration_count: 1,
+            };
+
+            let profile_creation_props = import_args.profile_creation_props();
+            let server_props = import_args.server_props();
+            let recording_props = RecordingProps {
+                output_file: import_args.output,
+                time_limit: None,
+                interval: Duration::from_secs(1),
+                main_thread_only: false,
+                coreclr: false,
+            };
+
+            let exit_status = match profiler::start_recording(
+                process_launch_props,
+                recording_props,
+                profile_creation_props,
+                server_props,
+            ) {
+                Ok(exit_status) => exit_status,
+                Err(err) => {
+                    eprintln!("Encountered an error during profiling: {err:?}");
+                    std::process::exit(1);
+                }
+            };
+            std::process::exit(exit_status.code().unwrap_or(0));
         }
 
         #[cfg(any(
@@ -325,7 +374,7 @@ impl ImportArgs {
         let profile_name = if let Some(profile_name) = &self.profile_creation_args.profile_name {
             profile_name.clone()
         } else {
-            "Imported perf profile".to_string()
+            "Imported profile".to_string()
         };
         ProfileCreationProps {
             profile_name,
@@ -333,8 +382,9 @@ impl ImportArgs {
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
             unlink_aux_files: self.profile_creation_args.unlink_aux_files,
             create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
-            include_process_names: None,
-            include_process_ids: None,
+            include_process_names: self.names.clone(),
+            include_process_ids: self.pids.clone(),
+            arch: self.arch.clone(),
         }
     }
 }
@@ -418,6 +468,7 @@ impl RecordArgs {
             create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
             include_process_names: self.names.clone(),
             include_process_ids: self.pids.clone(),
+            arch: None,
         }
     }
 }
@@ -460,7 +511,7 @@ fn split_at_first_equals(s: &OsStr) -> Option<(&OsStr, &OsStr)> {
     Some((name, val))
 }
 
-fn convert_file_to_profile(
+fn convert_perf_file_to_profile(
     filename: &Path,
     input_file: &File,
     output_filename: &Path,
